@@ -3,9 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>3D Endless Runner Pro - Three.js</title>
+    <title>Runner Box - Power-up Edition</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
     <style>
         body { margin: 0; overflow: hidden; background: #111; font-family: 'Segoe UI', sans-serif; }
@@ -16,11 +15,31 @@
             color: white;
             pointer-events: none;
             text-shadow: 2px 2px 4px rgba(0,0,0,0.8);
+            z-index: 5;
         }
         #score { font-size: 2.5rem; font-weight: 900; margin-bottom: 0; }
         #high-score { font-size: 1rem; opacity: 0.8; margin-top: -5px; margin-bottom: 10px; }
         #coins-ui { font-size: 1.5rem; color: #ffd700; font-weight: bold; }
         
+        #powerup-ui {
+            position: absolute;
+            bottom: 60px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            gap: 15px;
+            z-index: 5;
+        }
+        .power-bar {
+            background: rgba(0,0,0,0.6);
+            color: white;
+            padding: 8px 15px;
+            border-radius: 10px;
+            font-size: 0.9rem;
+            display: none;
+            border: 1px solid white;
+        }
+
         #msg {
             position: absolute;
             top: 50%;
@@ -60,8 +79,8 @@
 <body>
 
 <div id="loading">
-    <h1>PREPARING STREETS...</h1>
-    <p>Generating textures and lighting</p>
+    <h1>POWERING UP...</h1>
+    <p>Adding Magnets and Hoverboards</p>
 </div>
 
 <div id="ui">
@@ -70,44 +89,46 @@
     <div id="coins-ui">Coins: 0</div>
 </div>
 
+<div id="powerup-ui">
+    <div id="magnet-bar" class="power-bar">🧲 Magnet: <span id="mag-timer">0</span>s</div>
+    <div id="board-bar" class="power-bar">🛹 Board: ACTIVE</div>
+</div>
+
 <div id="msg">
     <h1>CRASHED!</h1>
     <p id="final-stats"></p>
-    <button onclick="resetGame()">Run Again</button>
+    <button onclick="resetGame()">Try Again</button>
 </div>
 
 <script>
 /**
- * CONFIG & STATE
+ * STATE & CONFIG
  */
-let scene, camera, renderer, clock, mixer;
+let scene, camera, renderer, clock;
 let player, playerBox;
 let lanes = [-5, 0, 5];
 let currentLane = 1;
 let isJumping = false, isRolling = false, gameActive = false;
+let playerYVelocity = 0;
+
+// Power-ups
+let hasMagnet = false, magnetTime = 0;
+let hasBoard = false;
 
 let score = 0, coinCount = 0, currentSpeed = 0.6;
 let highScore = localStorage.getItem('runner_highscore') || 0;
-const MAX_SPEED = 2.8, SPEED_INC = 0.00015;
+const MAX_SPEED = 2.5;
 
-// Environment & Pooling
-const segmentLength = 50, numSegments = 6;
-let trackSegments = [], obstacles = [], coins = [], scenery = [];
-const obstaclePool = [], coinPool = [], sceneryPool = [];
+let trackSegments = [], obstacles = [], coins = [], scenery = [], powerups = [];
+const obstaclePool = [], coinPool = [], sceneryPool = [], powerupPool = [];
 
-// Textures (Generated via Canvas)
 let streetTex, buildingTex;
-
-// Particles
 let particleGroup = new THREE.Group();
-
-// Audio
-let listener, sounds = {};
 
 function init() {
     scene = new THREE.Scene();
     scene.background = new THREE.Color(0x87ceeb);
-    scene.fog = new THREE.Fog(0x87ceeb, 50, 220);
+    scene.fog = new THREE.Fog(0x87ceeb, 50, 250);
     scene.add(particleGroup);
 
     camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 1000);
@@ -116,20 +137,14 @@ function init() {
     renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.shadowMap.enabled = true;
-    renderer.setPixelRatio(window.devicePixelRatio);
     document.body.appendChild(renderer.domElement);
 
-    // Advanced Lighting
-    const hemiLight = new THREE.HemisphereLight(0x87ceeb, 0x444444, 0.6);
+    const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 0.7);
     scene.add(hemiLight);
 
     const sun = new THREE.DirectionalLight(0xffffff, 1.0);
     sun.position.set(20, 50, 20);
     sun.castShadow = true;
-    sun.shadow.camera.left = -30;
-    sun.shadow.camera.right = 30;
-    sun.shadow.camera.top = 30;
-    sun.shadow.camera.bottom = -30;
     scene.add(sun);
 
     clock = new THREE.Clock();
@@ -143,56 +158,51 @@ function init() {
     window.addEventListener('resize', onWindowResize);
 }
 
-/**
- * TEXTURE GENERATION (Procedural)
- */
 function generateTextures() {
-    // Street Texture
     const c1 = document.createElement('canvas');
     c1.width = 512; c1.height = 512;
     const ctx1 = c1.getContext('2d');
-    ctx1.fillStyle = '#333';
-    ctx1.fillRect(0, 0, 512, 512);
-    ctx1.fillStyle = '#444';
-    for(let i=0; i<1000; i++) ctx1.fillRect(Math.random()*512, Math.random()*512, 2, 2); // Noise
-    ctx1.fillStyle = '#ffd700'; // Yellow lane lines
-    ctx1.fillRect(120, 0, 10, 512);
-    ctx1.fillRect(380, 0, 10, 512);
-    streetTex = new THREE.CanvasTexture(c1);
-    streetTex.wrapS = streetTex.wrapT = THREE.RepeatWrapping;
-    streetTex.repeat.set(1, 1);
+    ctx1.fillStyle = '#333'; ctx1.fillRect(0, 0, 512, 512);
+    ctx1.fillStyle = '#ffd700'; ctx1.fillRect(160, 0, 8, 512); ctx1.fillRect(340, 0, 8, 512);
+    streetTex = new THREE.CanvasTexture(c1); streetTex.wrapS = streetTex.wrapT = THREE.RepeatWrapping;
 
-    // Building Texture (Windows)
     const c2 = document.createElement('canvas');
     c2.width = 256; c2.height = 256;
     const ctx2 = c2.getContext('2d');
-    ctx2.fillStyle = '#222';
-    ctx2.fillRect(0,0,256,256);
-    ctx2.fillStyle = '#55ccff';
-    for(let y=20; y<256; y+=40) {
-        for(let x=20; x<256; x+=40) {
-            if(Math.random() > 0.3) ctx2.fillRect(x, y, 20, 25);
-        }
-    }
-    buildingTex = new THREE.CanvasTexture(c2);
-    buildingTex.wrapS = buildingTex.wrapT = THREE.RepeatWrapping;
+    ctx2.fillStyle = '#2c3e50'; ctx2.fillRect(0,0,256,256);
+    ctx2.fillStyle = '#f1c40f';
+    for(let y=20; y<256; y+=40) for(let x=20; x<256; x+=40) if(Math.random() > 0.4) ctx2.fillRect(x, y, 15, 20);
+    buildingTex = new THREE.CanvasTexture(c2); buildingTex.wrapS = buildingTex.wrapT = THREE.RepeatWrapping;
 }
 
-/**
- * ASSET MANAGEMENT
- */
 function loadModels() {
-    // Procedural Player (As we cannot load external files in this sandbox)
     const playerGroup = new THREE.Group();
-    const body = new THREE.Mesh(new THREE.BoxGeometry(1.5, 3.5, 1.2), new THREE.MeshStandardMaterial({ color: 0x3498db }));
-    body.position.y = 1.75;
+    const body = new THREE.Mesh(
+        new THREE.BoxGeometry(1.6, 3.2, 1.2), 
+        new THREE.MeshStandardMaterial({ color: 0x3498db })
+    );
+    body.position.y = 1.6;
     body.castShadow = true;
     playerGroup.add(body);
+
+    // Hoverboard Visual
+    const board = new THREE.Mesh(
+        new THREE.BoxGeometry(2, 0.2, 3),
+        new THREE.MeshStandardMaterial({ color: 0x2ecc71 })
+    );
+    board.position.y = -0.1;
+    board.name = "hoverboard";
+    board.visible = false;
+    playerGroup.add(board);
+
     player = playerGroup;
     scene.add(player);
     playerBox = new THREE.Box3();
 
-    createCoinAsset();
+    // Coin
+    const coinGeo = new THREE.CylinderGeometry(0.7, 0.7, 0.2, 12);
+    window.coinModel = new THREE.Mesh(coinGeo, new THREE.MeshStandardMaterial({ color: 0xffd700, metalness: 0.8 }));
+    window.coinModel.rotation.x = Math.PI / 2;
 
     setTimeout(() => {
         document.getElementById('loading').style.display = 'none';
@@ -201,201 +211,194 @@ function loadModels() {
     }, 1000);
 }
 
-function createCoinAsset() {
-    const geo = new THREE.CylinderGeometry(0.8, 0.8, 0.2, 16);
-    const mat = new THREE.MeshStandardMaterial({ color: 0xffd700, metalness: 1, roughness: 0.1 });
-    const mesh = new THREE.Mesh(geo, mat);
-    mesh.rotation.x = Math.PI / 2;
-    window.coinModel = mesh;
-}
-
 function createTrack() {
-    const groundGeo = new THREE.PlaneGeometry(22, segmentLength);
+    const groundGeo = new THREE.PlaneGeometry(24, 50);
     const groundMat = new THREE.MeshStandardMaterial({ map: streetTex });
-
-    for (let i = 0; i < numSegments; i++) {
+    for (let i = 0; i < 6; i++) {
         const seg = new THREE.Mesh(groundGeo, groundMat);
         seg.rotation.x = -Math.PI / 2;
-        seg.position.z = -i * segmentLength;
-        seg.receiveShadow = true;
+        seg.position.z = -i * 50;
         scene.add(seg);
         trackSegments.push(seg);
-        spawnScenery(-i * segmentLength);
     }
 }
 
-function spawnScenery(zPos) {
-    const side = Math.random() > 0.5 ? 1 : -1;
-    let building;
-    if (sceneryPool.length > 0) {
-        building = sceneryPool.pop();
-    } else {
-        const h = 15 + Math.random() * 25;
-        const geo = new THREE.BoxGeometry(10, h, 10);
-        const mat = new THREE.MeshStandardMaterial({ map: buildingTex });
-        building = new THREE.Mesh(geo, mat);
-        building.userData.h = h;
-    }
-    building.position.set(22 * side, building.userData.h / 2, zPos);
-    scene.add(building);
-    scenery.push(building);
-}
-
-/**
- * GAME CORE & PHYSICS
- */
 function spawnEntities() {
     if (!gameActive || Math.random() > 0.05) return;
     const laneIdx = Math.floor(Math.random() * 3);
-    const chance = Math.random();
+    const rand = Math.random();
 
-    if (chance < 0.6) {
-        // Obstacle (Train)
-        let obs;
-        const isMoving = Math.random() < (currentSpeed / MAX_SPEED); // Faster = more moving trains
-        if (obstaclePool.length > 0) obs = obstaclePool.pop();
-        else obs = new THREE.Mesh(new THREE.BoxGeometry(4.5, 6, 10), new THREE.MeshStandardMaterial({ color: 0x990000 }));
-        
-        obs.userData.isMoving = isMoving;
-        obs.material.color.set(isMoving ? 0xff4444 : 0x666666);
-        obs.position.set(lanes[laneIdx], 3, -180);
+    if (rand < 0.6) {
+        // Obstacle
+        const h = 4.5;
+        let obs = obstaclePool.length > 0 ? obstaclePool.pop() : new THREE.Mesh(new THREE.BoxGeometry(4.2, h, 8), new THREE.MeshStandardMaterial({ color: 0x222222 }));
+        obs.userData.h = h;
+        obs.position.set(lanes[laneIdx], h/2, -200);
         scene.add(obs);
         obstacles.push(obs);
-    } else {
-        let coin;
-        if (coinPool.length > 0) coin = coinPool.pop();
-        else coin = window.coinModel.clone();
-        coin.position.set(lanes[laneIdx], 2.5, -180);
+    } else if (rand < 0.9) {
+        // Coin
+        let coin = coinPool.length > 0 ? coinPool.pop() : window.coinModel.clone();
+        coin.position.set(lanes[laneIdx], 2.5, -200);
         scene.add(coin);
         coins.push(coin);
+    } else {
+        // Powerup
+        const type = Math.random() > 0.5 ? 'magnet' : 'board';
+        const color = type === 'magnet' ? 0x3498db : 0x2ecc71;
+        let p = powerupPool.length > 0 ? powerupPool.pop() : new THREE.Mesh(new THREE.OctahedronGeometry(1), new THREE.MeshStandardMaterial());
+        p.material.color.set(color);
+        p.userData.type = type;
+        p.position.set(lanes[laneIdx], 3, -200);
+        scene.add(p);
+        powerups.push(p);
     }
 }
 
 function updatePhysics(delta) {
     const frameSpeed = currentSpeed * 60 * delta;
     playerBox.setFromObject(player);
-
-    // Dynamic Fog Color Transition
-    const t = currentSpeed / MAX_SPEED;
-    const fogColor = new THREE.Color().lerpColors(new THREE.Color(0x87ceeb), new THREE.Color(0xff7f50), t);
-    scene.fog.color.copy(fogColor);
-    scene.background.copy(fogColor);
-
-    // Obstacles
-    for (let i = obstacles.length - 1; i >= 0; i--) {
-        const obs = obstacles[i];
-        let obsMovement = frameSpeed;
-        if (obs.userData.isMoving) obsMovement += (frameSpeed * 0.5); // Moves toward player
-
-        obs.position.z += obsMovement;
-        const obsBox = new THREE.Box3().setFromObject(obs);
-        if (playerBox.intersectsBox(obsBox)) gameOver();
-        if (obs.position.z > 30) {
-            scene.remove(obs);
-            obstacles.splice(i, 1);
-            obstaclePool.push(obs);
+    
+    // Magnet Timer Logic
+    if (hasMagnet) {
+        magnetTime -= delta;
+        document.getElementById('mag-timer').innerText = Math.ceil(magnetTime);
+        if (magnetTime <= 0) {
+            hasMagnet = false;
+            document.getElementById('magnet-bar').style.display = 'none';
         }
     }
 
-    // Coins
+    // Hoverboard Visual Logic
+    player.getObjectByName("hoverboard").visible = hasBoard;
+
+    let groundY = 0;
+    let onTop = false;
+
+    // Obstacles & Collisions
+    for (let i = obstacles.length - 1; i >= 0; i--) {
+        const obs = obstacles[i];
+        obs.position.z += frameSpeed;
+        
+        const isAbove = player.position.y >= obs.userData.h - 0.5;
+        const isWithinX = Math.abs(player.position.x - obs.position.x) < 2;
+        const isWithinZ = Math.abs(player.position.z - obs.position.z) < 4.5;
+
+        if (isWithinX && isWithinZ) {
+            if (isAbove) {
+                onTop = true; groundY = obs.userData.h;
+                if (playerYVelocity < 0) { player.position.y = groundY; playerYVelocity = 0; isJumping = false; }
+            } else {
+                if (hasBoard) {
+                    hasBoard = false;
+                    document.getElementById('board-bar').style.display = 'none';
+                    // Destroy obstacle as penalty for board
+                    scene.remove(obs); obstacles.splice(i, 1);
+                    createBurst(player.position, 0x2ecc71);
+                } else {
+                    gameOver(); return;
+                }
+            }
+        }
+        if (obs.position.z > 50) { scene.remove(obs); obstacles.splice(i, 1); obstaclePool.push(obs); }
+    }
+
+    // Coins Logic
     for (let i = coins.length - 1; i >= 0; i--) {
         const coin = coins[i];
         coin.position.z += frameSpeed;
-        coin.rotation.z += 0.1;
-        const coinBox = new THREE.Box3().setFromObject(coin);
-        if (playerBox.intersectsBox(coinBox)) {
+        
+        // Magnet effect
+        if (hasMagnet && coin.position.z > -100) {
+            coin.position.lerp(new THREE.Vector3(player.position.x, player.position.y + 1, player.position.z), 0.1);
+        }
+
+        if (playerBox.intersectsBox(new THREE.Box3().setFromObject(coin))) {
             coinCount++;
             document.getElementById('coins-ui').innerText = "Coins: " + coinCount;
-            createBurst(coin.position);
-            scene.remove(coin);
-            coins.splice(i, 1);
-            coinPool.push(coin);
-        } else if (coin.position.z > 30) {
-            scene.remove(coin);
-            coins.splice(i, 1);
-            coinPool.push(coin);
+            createBurst(coin.position, 0xffd700);
+            scene.remove(coin); coins.splice(i, 1); coinPool.push(coin);
+        } else if (coin.position.z > 50) {
+            scene.remove(coin); coins.splice(i, 1); coinPool.push(coin);
         }
     }
 
-    // Scenery
-    for (let i = scenery.length - 1; i >= 0; i--) {
-        const item = scenery[i];
-        item.position.z += frameSpeed;
-        if (item.position.z > 50) {
-            scene.remove(item);
-            scenery.splice(i, 1);
-            sceneryPool.push(item);
-            spawnScenery(-250);
+    // Powerups Logic
+    for (let i = powerups.length - 1; i >= 0; i--) {
+        const p = powerups[i];
+        p.position.z += frameSpeed;
+        p.rotation.y += 0.05;
+        if (playerBox.intersectsBox(new THREE.Box3().setFromObject(p))) {
+            if (p.userData.type === 'magnet') {
+                hasMagnet = true; magnetTime = 8;
+                document.getElementById('magnet-bar').style.display = 'block';
+            } else {
+                hasBoard = true;
+                document.getElementById('board-bar').style.display = 'block';
+            }
+            scene.remove(p); powerups.splice(i, 1); powerupPool.push(p);
+        } else if (p.position.z > 50) {
+            scene.remove(p); powerups.splice(i, 1); powerupPool.push(p);
         }
     }
+
+    // Gravity
+    if (player.position.y > groundY || playerYVelocity > 0) {
+        playerYVelocity -= 0.5;
+        player.position.y += playerYVelocity * delta * 5;
+    }
+    if (player.position.y <= 0) { player.position.y = 0; playerYVelocity = 0; isJumping = false; }
 }
 
-function createBurst(position) {
-    for (let i = 0; i < 8; i++) {
-        const p = new THREE.Mesh(new THREE.SphereGeometry(0.3), new THREE.MeshBasicMaterial({ color: 0xffd700 }));
-        p.position.copy(position);
+function createBurst(pos, color) {
+    for (let i = 0; i < 5; i++) {
+        const p = new THREE.Mesh(new THREE.SphereGeometry(0.2), new THREE.MeshBasicMaterial({ color }));
+        p.position.copy(pos);
         particleGroup.add(p);
-        gsap.to(p.position, {
-            x: p.position.x + (Math.random()-0.5)*10,
-            y: p.position.y + (Math.random())*10,
-            z: p.position.z + (Math.random()-0.5)*10,
-            duration: 0.6,
-            ease: "power2.out",
-            onComplete: () => particleGroup.remove(p)
-        });
-        gsap.to(p.scale, { x: 0, y: 0, z: 0, duration: 0.6 });
+        gsap.to(p.position, { x:p.position.x+(Math.random()-0.5)*5, y:p.position.y+Math.random()*5, z:p.position.z-5, duration: 0.4, onComplete: () => particleGroup.remove(p) });
     }
 }
 
 function animate() {
+    if (!gameActive) return;
     requestAnimationFrame(animate);
     const delta = clock.getDelta();
     
-    if (gameActive) {
-        trackSegments.forEach(seg => {
-            seg.position.z += currentSpeed;
-            if (seg.position.z > segmentLength) seg.position.z -= numSegments * segmentLength;
-        });
+    trackSegments.forEach(seg => {
+        seg.position.z += currentSpeed;
+        if (seg.position.z > 50) seg.position.z -= 6 * 50;
+    });
 
-        updatePhysics(delta);
-        spawnEntities();
-        
-        score += currentSpeed * 0.2;
-        document.getElementById('score').innerText = Math.floor(score) + "m";
-        if (currentSpeed < MAX_SPEED) currentSpeed += SPEED_INC;
+    updatePhysics(delta);
+    spawnEntities();
+    
+    score += currentSpeed * 0.15;
+    document.getElementById('score').innerText = Math.floor(score) + "m";
+    if (currentSpeed < MAX_SPEED) currentSpeed += 0.0001;
 
-        camera.position.x = THREE.MathUtils.lerp(camera.position.x, player.position.x * 0.5, 0.05);
-        camera.lookAt(player.position.x * 0.3, 3, -10);
-    }
+    camera.position.x = THREE.MathUtils.lerp(camera.position.x, player.position.x * 0.4, 0.05);
+    camera.lookAt(player.position.x * 0.2, 4, -10);
     renderer.render(scene, camera);
 }
 
-/**
- * INPUTS
- */
 function moveLane(dir) {
     if (!gameActive) return;
     let next = currentLane + dir;
     if (next >= 0 && next <= 2) {
         currentLane = next;
-        gsap.to(player.position, { x: lanes[currentLane], duration: 0.25, ease: "power2.out" });
+        gsap.to(player.position, { x: lanes[currentLane], duration: 0.2 });
     }
 }
 
 function jump() {
     if (isJumping || !gameActive) return;
-    isJumping = true;
-    gsap.to(player.position, { y: 9, duration: 0.4, ease: "power2.out", onComplete: () => {
-        gsap.to(player.position, { y: 0, duration: 0.4, ease: "power2.in", onComplete: () => isJumping = false });
-    }});
+    isJumping = true; playerYVelocity = 18;
 }
 
 function roll() {
     if (isRolling || !gameActive) return;
     isRolling = true;
-    gsap.to(player.scale, { y: 0.4, duration: 0.3, onComplete: () => {
-        gsap.to(player.scale, { y: 1, duration: 0.3, onComplete: () => isRolling = false });
-    }});
+    gsap.to(player.scale, { y: 0.4, duration: 0.2, yoyo: true, repeat: 1, onComplete: () => isRolling = false });
 }
 
 function setupInputs() {
@@ -415,17 +418,12 @@ function onWindowResize() {
 
 function gameOver() {
     gameActive = false;
-    if (score > highScore) {
-        highScore = score;
-        localStorage.setItem('runner_highscore', highScore);
-    }
-    document.getElementById('final-stats').innerText = `Best: ${Math.floor(highScore)}m | Current: ${Math.floor(score)}m | Coins: ${coinCount}`;
+    if (score > highScore) localStorage.setItem('runner_highscore', score);
+    document.getElementById('final-stats').innerText = `Score: ${Math.floor(score)}m | Coins: ${coinCount}`;
     document.getElementById('msg').style.display = 'block';
 }
 
-function resetGame() {
-    location.reload();
-}
+function resetGame() { location.reload(); }
 
 init();
 </script>
