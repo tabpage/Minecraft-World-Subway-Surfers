@@ -2,42 +2,77 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Minecraft world's subway surfers</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Runner Box - Universal Edition</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
     <style>
-        body { margin: 0; overflow: hidden; background: #111; font-family: 'Segoe UI', sans-serif; }
+        body { 
+            margin: 0; 
+            overflow: hidden; 
+            background: #111; 
+            font-family: 'Segoe UI', sans-serif; 
+            touch-action: none; /* মোবাইলে ডিফল্ট স্ক্রল বন্ধ করার জন্য */
+        }
         #ui {
             position: absolute;
-            top: 20px;
+            top: env(safe-area-inset-top, 20px);
             left: 20px;
             color: white;
             pointer-events: none;
             text-shadow: 2px 2px 4px rgba(0,0,0,0.8);
             z-index: 5;
         }
-        #score { font-size: 2.5rem; font-weight: 900; margin-bottom: 0; }
-        #high-score { font-size: 1rem; opacity: 0.8; margin-top: -5px; margin-bottom: 10px; }
-        #coins-ui { font-size: 1.5rem; color: #ffd700; font-weight: bold; }
+        #score { font-size: 2rem; font-weight: 900; margin-bottom: 0; }
+        #high-score { font-size: 0.9rem; opacity: 0.8; margin-top: -5px; }
+        #coins-ui { font-size: 1.2rem; color: #ffd700; font-weight: bold; }
         
         #powerup-ui {
             position: absolute;
-            bottom: 60px;
+            bottom: 120px;
             left: 50%;
             transform: translateX(-50%);
             display: flex;
-            gap: 15px;
+            gap: 10px;
             z-index: 5;
+            width: 90%;
+            justify-content: center;
         }
         .power-bar {
-            background: rgba(0,0,0,0.6);
+            background: rgba(0,0,0,0.7);
             color: white;
-            padding: 8px 15px;
-            border-radius: 10px;
-            font-size: 0.9rem;
+            padding: 5px 12px;
+            border-radius: 20px;
+            font-size: 0.8rem;
             display: none;
-            border: 1px solid white;
+            border: 1px solid rgba(255,255,255,0.3);
+            white-space: nowrap;
+        }
+
+        /* মোবাইল কন্ট্রোল বাটন */
+        #mobile-controls {
+            position: absolute;
+            bottom: 20px;
+            width: 100%;
+            display: flex;
+            justify-content: space-around;
+            padding: 0 20px;
+            box-sizing: border-box;
+            z-index: 6;
+        }
+        .control-btn {
+            width: 60px;
+            height: 60px;
+            background: rgba(255,255,255,0.2);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 1.5rem;
+            border: 2px solid rgba(255,255,255,0.4);
+            user-select: none;
+            -webkit-tap-highlight-color: transparent;
         }
 
         #msg {
@@ -48,11 +83,13 @@
             color: white;
             text-align: center;
             display: none;
-            background: rgba(0,0,0,0.9);
-            padding: 40px;
+            background: rgba(0,0,0,0.95);
+            padding: 30px;
             border-radius: 20px;
             border: 2px solid #ff4757;
-            z-index: 10;
+            z-index: 100;
+            width: 80%;
+            max-width: 400px;
         }
         button {
             padding: 12px 30px;
@@ -63,24 +100,27 @@
             color: white;
             border-radius: 50px;
             margin-top: 20px;
-            pointer-events: auto;
             transition: 0.2s;
         }
-        button:hover { background: #ff6b81; transform: scale(1.05); }
         #loading {
             position: fixed;
             top: 0; left: 0; width: 100%; height: 100%;
             background: #111; color: white;
             display: flex; flex-direction: column; justify-content: center; align-items: center;
-            z-index: 100;
+            z-index: 1000;
+        }
+        
+        @media (min-width: 768px) {
+            #mobile-controls { display: none; } /* পিসিতে বাটন হাইড থাকবে */
+            #score { font-size: 3rem; }
         }
     </style>
 </head>
 <body>
 
 <div id="loading">
-    <h1>POWERING UP...</h1>
-    <p>Adding Magnets and Hoverboards</p>
+    <h1>RUNNER BOX</h1>
+    <p>Loading Mobile Assets...</p>
 </div>
 
 <div id="ui">
@@ -90,8 +130,15 @@
 </div>
 
 <div id="powerup-ui">
-    <div id="magnet-bar" class="power-bar">🧲 Magnet: <span id="mag-timer">0</span>s</div>
-    <div id="board-bar" class="power-bar">🛹 Board: ACTIVE</div>
+    <div id="magnet-bar" class="power-bar">🧲 <span id="mag-timer">0</span>s</div>
+    <div id="board-bar" class="power-bar">🛹 ACTIVE</div>
+</div>
+
+<!-- মোবাইল ইউজারদের জন্য ভিজ্যুয়াল কন্ট্রোল -->
+<div id="mobile-controls">
+    <div class="control-btn" id="btn-left">←</div>
+    <div class="control-btn" id="btn-jump">↑</div>
+    <div class="control-btn" id="btn-right">→</div>
 </div>
 
 <div id="msg">
@@ -111,30 +158,30 @@ let currentLane = 1;
 let isJumping = false, isRolling = false, gameActive = false;
 let playerYVelocity = 0;
 
-// Power-ups
 let hasMagnet = false, magnetTime = 0;
 let hasBoard = false;
 
 let score = 0, coinCount = 0, currentSpeed = 0.6;
 let highScore = localStorage.getItem('runner_highscore') || 0;
-const MAX_SPEED = 2.5;
+const MAX_SPEED = 2.2;
 
-let trackSegments = [], obstacles = [], coins = [], scenery = [], powerups = [];
-const obstaclePool = [], coinPool = [], sceneryPool = [], powerupPool = [];
+let trackSegments = [], obstacles = [], coins = [], powerups = [];
+const obstaclePool = [], coinPool = [], powerupPool = [];
 
-let streetTex, buildingTex;
+let streetTex;
 let particleGroup = new THREE.Group();
 
 function init() {
     scene = new THREE.Scene();
     scene.background = new THREE.Color(0x87ceeb);
-    scene.fog = new THREE.Fog(0x87ceeb, 50, 250);
+    scene.fog = new THREE.Fog(0x87ceeb, 50, 200);
     scene.add(particleGroup);
 
     camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 1000);
     camera.position.set(0, 8, 14);
 
     renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); // পারফরম্যান্স অপ্টিমাইজেশন
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.shadowMap.enabled = true;
     document.body.appendChild(renderer.domElement);
@@ -165,14 +212,6 @@ function generateTextures() {
     ctx1.fillStyle = '#333'; ctx1.fillRect(0, 0, 512, 512);
     ctx1.fillStyle = '#ffd700'; ctx1.fillRect(160, 0, 8, 512); ctx1.fillRect(340, 0, 8, 512);
     streetTex = new THREE.CanvasTexture(c1); streetTex.wrapS = streetTex.wrapT = THREE.RepeatWrapping;
-
-    const c2 = document.createElement('canvas');
-    c2.width = 256; c2.height = 256;
-    const ctx2 = c2.getContext('2d');
-    ctx2.fillStyle = '#2c3e50'; ctx2.fillRect(0,0,256,256);
-    ctx2.fillStyle = '#f1c40f';
-    for(let y=20; y<256; y+=40) for(let x=20; x<256; x+=40) if(Math.random() > 0.4) ctx2.fillRect(x, y, 15, 20);
-    buildingTex = new THREE.CanvasTexture(c2); buildingTex.wrapS = buildingTex.wrapT = THREE.RepeatWrapping;
 }
 
 function loadModels() {
@@ -185,9 +224,8 @@ function loadModels() {
     body.castShadow = true;
     playerGroup.add(body);
 
-    // Hoverboard Visual
     const board = new THREE.Mesh(
-        new THREE.BoxGeometry(2, 0.2, 3),
+        new THREE.BoxGeometry(2.2, 0.3, 3.5),
         new THREE.MeshStandardMaterial({ color: 0x2ecc71 })
     );
     board.position.y = -0.1;
@@ -199,7 +237,6 @@ function loadModels() {
     scene.add(player);
     playerBox = new THREE.Box3();
 
-    // Coin
     const coinGeo = new THREE.CylinderGeometry(0.7, 0.7, 0.2, 12);
     window.coinModel = new THREE.Mesh(coinGeo, new THREE.MeshStandardMaterial({ color: 0xffd700, metalness: 0.8 }));
     window.coinModel.rotation.x = Math.PI / 2;
@@ -208,7 +245,7 @@ function loadModels() {
         document.getElementById('loading').style.display = 'none';
         gameActive = true;
         animate();
-    }, 1000);
+    }, 1500);
 }
 
 function createTrack() {
@@ -229,7 +266,6 @@ function spawnEntities() {
     const rand = Math.random();
 
     if (rand < 0.6) {
-        // Obstacle
         const h = 4.5;
         let obs = obstaclePool.length > 0 ? obstaclePool.pop() : new THREE.Mesh(new THREE.BoxGeometry(4.2, h, 8), new THREE.MeshStandardMaterial({ color: 0x222222 }));
         obs.userData.h = h;
@@ -237,16 +273,14 @@ function spawnEntities() {
         scene.add(obs);
         obstacles.push(obs);
     } else if (rand < 0.9) {
-        // Coin
         let coin = coinPool.length > 0 ? coinPool.pop() : window.coinModel.clone();
         coin.position.set(lanes[laneIdx], 2.5, -200);
         scene.add(coin);
         coins.push(coin);
     } else {
-        // Powerup
         const type = Math.random() > 0.5 ? 'magnet' : 'board';
-        const color = type === 'magnet' ? 0x3498db : 0x2ecc71;
-        let p = powerupPool.length > 0 ? powerupPool.pop() : new THREE.Mesh(new THREE.OctahedronGeometry(1), new THREE.MeshStandardMaterial());
+        const color = type === 'magnet' ? 0x00a8ff : 0x2ecc71;
+        let p = powerupPool.length > 0 ? powerupPool.pop() : new THREE.Mesh(new THREE.OctahedronGeometry(1.2), new THREE.MeshStandardMaterial());
         p.material.color.set(color);
         p.userData.type = type;
         p.position.set(lanes[laneIdx], 3, -200);
@@ -259,7 +293,6 @@ function updatePhysics(delta) {
     const frameSpeed = currentSpeed * 60 * delta;
     playerBox.setFromObject(player);
     
-    // Magnet Timer Logic
     if (hasMagnet) {
         magnetTime -= delta;
         document.getElementById('mag-timer').innerText = Math.ceil(magnetTime);
@@ -269,20 +302,18 @@ function updatePhysics(delta) {
         }
     }
 
-    // Hoverboard Visual Logic
     player.getObjectByName("hoverboard").visible = hasBoard;
 
     let groundY = 0;
     let onTop = false;
 
-    // Obstacles & Collisions
     for (let i = obstacles.length - 1; i >= 0; i--) {
         const obs = obstacles[i];
         obs.position.z += frameSpeed;
         
         const isAbove = player.position.y >= obs.userData.h - 0.5;
         const isWithinX = Math.abs(player.position.x - obs.position.x) < 2;
-        const isWithinZ = Math.abs(player.position.z - obs.position.z) < 4.5;
+        const isWithinZ = Math.abs(player.position.z - obs.position.z) < 5;
 
         if (isWithinX && isWithinZ) {
             if (isAbove) {
@@ -292,9 +323,8 @@ function updatePhysics(delta) {
                 if (hasBoard) {
                     hasBoard = false;
                     document.getElementById('board-bar').style.display = 'none';
-                    // Destroy obstacle as penalty for board
-                    scene.remove(obs); obstacles.splice(i, 1);
                     createBurst(player.position, 0x2ecc71);
+                    scene.remove(obs); obstacles.splice(i, 1);
                 } else {
                     gameOver(); return;
                 }
@@ -303,16 +333,12 @@ function updatePhysics(delta) {
         if (obs.position.z > 50) { scene.remove(obs); obstacles.splice(i, 1); obstaclePool.push(obs); }
     }
 
-    // Coins Logic
     for (let i = coins.length - 1; i >= 0; i--) {
         const coin = coins[i];
         coin.position.z += frameSpeed;
-        
-        // Magnet effect
-        if (hasMagnet && coin.position.z > -100) {
-            coin.position.lerp(new THREE.Vector3(player.position.x, player.position.y + 1, player.position.z), 0.1);
+        if (hasMagnet && coin.position.z > -80) {
+            coin.position.lerp(new THREE.Vector3(player.position.x, player.position.y + 1, player.position.z), 0.15);
         }
-
         if (playerBox.intersectsBox(new THREE.Box3().setFromObject(coin))) {
             coinCount++;
             document.getElementById('coins-ui').innerText = "Coins: " + coinCount;
@@ -323,39 +349,44 @@ function updatePhysics(delta) {
         }
     }
 
-    // Powerups Logic
     for (let i = powerups.length - 1; i >= 0; i--) {
         const p = powerups[i];
         p.position.z += frameSpeed;
         p.rotation.y += 0.05;
         if (playerBox.intersectsBox(new THREE.Box3().setFromObject(p))) {
             if (p.userData.type === 'magnet') {
-                hasMagnet = true; magnetTime = 8;
+                hasMagnet = true; magnetTime = 10;
                 document.getElementById('magnet-bar').style.display = 'block';
             } else {
                 hasBoard = true;
                 document.getElementById('board-bar').style.display = 'block';
             }
+            createBurst(p.position, p.material.color.getHex());
             scene.remove(p); powerups.splice(i, 1); powerupPool.push(p);
         } else if (p.position.z > 50) {
             scene.remove(p); powerups.splice(i, 1); powerupPool.push(p);
         }
     }
 
-    // Gravity
     if (player.position.y > groundY || playerYVelocity > 0) {
-        playerYVelocity -= 0.5;
+        playerYVelocity -= 0.6;
         player.position.y += playerYVelocity * delta * 5;
     }
     if (player.position.y <= 0) { player.position.y = 0; playerYVelocity = 0; isJumping = false; }
 }
 
 function createBurst(pos, color) {
-    for (let i = 0; i < 5; i++) {
-        const p = new THREE.Mesh(new THREE.SphereGeometry(0.2), new THREE.MeshBasicMaterial({ color }));
+    for (let i = 0; i < 6; i++) {
+        const p = new THREE.Mesh(new THREE.SphereGeometry(0.25), new THREE.MeshBasicMaterial({ color }));
         p.position.copy(pos);
         particleGroup.add(p);
-        gsap.to(p.position, { x:p.position.x+(Math.random()-0.5)*5, y:p.position.y+Math.random()*5, z:p.position.z-5, duration: 0.4, onComplete: () => particleGroup.remove(p) });
+        gsap.to(p.position, { 
+            x:p.position.x+(Math.random()-0.5)*6, 
+            y:p.position.y+Math.random()*6, 
+            z:p.position.z-4, 
+            duration: 0.5, 
+            onComplete: () => particleGroup.remove(p) 
+        });
     }
 }
 
@@ -372,12 +403,12 @@ function animate() {
     updatePhysics(delta);
     spawnEntities();
     
-    score += currentSpeed * 0.15;
+    score += currentSpeed * 0.2;
     document.getElementById('score').innerText = Math.floor(score) + "m";
-    if (currentSpeed < MAX_SPEED) currentSpeed += 0.0001;
+    if (currentSpeed < MAX_SPEED) currentSpeed += 0.00015;
 
-    camera.position.x = THREE.MathUtils.lerp(camera.position.x, player.position.x * 0.4, 0.05);
-    camera.lookAt(player.position.x * 0.2, 4, -10);
+    camera.position.x = THREE.MathUtils.lerp(camera.position.x, player.position.x * 0.3, 0.05);
+    camera.lookAt(player.position.x * 0.1, 4, -10);
     renderer.render(scene, camera);
 }
 
@@ -386,7 +417,7 @@ function moveLane(dir) {
     let next = currentLane + dir;
     if (next >= 0 && next <= 2) {
         currentLane = next;
-        gsap.to(player.position, { x: lanes[currentLane], duration: 0.2 });
+        gsap.to(player.position, { x: lanes[currentLane], duration: 0.25, ease: "power2.out" });
     }
 }
 
@@ -398,16 +429,54 @@ function jump() {
 function roll() {
     if (isRolling || !gameActive) return;
     isRolling = true;
-    gsap.to(player.scale, { y: 0.4, duration: 0.2, yoyo: true, repeat: 1, onComplete: () => isRolling = false });
+    gsap.to(player.scale, { y: 0.4, duration: 0.25, yoyo: true, repeat: 1, onComplete: () => {
+        isRolling = false;
+        player.scale.y = 1;
+    }});
 }
 
 function setupInputs() {
+    // Keyboard
     window.addEventListener('keydown', e => {
         if (e.key === "ArrowLeft") moveLane(-1);
         if (e.key === "ArrowRight") moveLane(1);
-        if (e.key === "ArrowUp") jump();
+        if (e.key === "ArrowUp" || e.key === " ") jump();
         if (e.key === "ArrowDown") roll();
     });
+
+    // Touch Controls (Buttons)
+    document.getElementById('btn-left').addEventListener('touchstart', (e) => { e.preventDefault(); moveLane(-1); });
+    document.getElementById('btn-right').addEventListener('touchstart', (e) => { e.preventDefault(); moveLane(1); });
+    document.getElementById('btn-jump').addEventListener('touchstart', (e) => { e.preventDefault(); jump(); });
+
+    // Swipe Gestures
+    let touchStartX = 0;
+    let touchStartY = 0;
+    window.addEventListener('touchstart', e => {
+        touchStartX = e.changedTouches[0].screenX;
+        touchStartY = e.changedTouches[0].screenY;
+    }, false);
+
+    window.addEventListener('touchend', e => {
+        let touchEndX = e.changedTouches[0].screenX;
+        let touchEndY = e.changedTouches[0].screenY;
+        handleSwipe(touchStartX, touchStartY, touchEndX, touchEndY);
+    }, false);
+}
+
+function handleSwipe(x1, y1, x2, y2) {
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const absDx = Math.abs(dx);
+    const absDy = Math.abs(dy);
+
+    if (Math.max(absDx, absDy) > 30) { // মরা সোয়াইপ ফিল্টার
+        if (absDx > absDy) {
+            if (dx > 0) moveLane(1); else moveLane(-1);
+        } else {
+            if (dy < 0) jump(); else roll();
+        }
+    }
 }
 
 function onWindowResize() {
@@ -419,7 +488,7 @@ function onWindowResize() {
 function gameOver() {
     gameActive = false;
     if (score > highScore) localStorage.setItem('runner_highscore', score);
-    document.getElementById('final-stats').innerText = `Score: ${Math.floor(score)}m | Coins: ${coinCount}`;
+    document.getElementById('final-stats').innerText = `Distance: ${Math.floor(score)}m | Coins: ${coinCount}`;
     document.getElementById('msg').style.display = 'block';
 }
 
